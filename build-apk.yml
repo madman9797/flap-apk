@@ -1,0 +1,68 @@
+name: Build Flappy Maker APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build dependencies
+        run: |
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "cmake;3.22.1" "ndk;25.2.9519653"
+
+      - name: Get LÖVE Android 11.5a
+        run: |
+          git clone --depth 1 --branch 11.5a --recurse-submodules --shallow-submodules \
+            https://github.com/love2d/love-android.git love-android
+
+      - name: Configure app
+        run: |
+          mkdir -p love-android/app/src/embed/assets
+          cp game.love love-android/app/src/embed/assets/game.love
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('love-android/gradle.properties')
+          s = p.read_text()
+          lines = []
+          for line in s.splitlines():
+              if line.startswith('app.name_byte_array='):
+                  lines.append('app.name=Flappy Maker')
+              elif line.startswith('app.application_id='):
+                  lines.append('app.application_id=com.brocade.flappymaker')
+              elif line.startswith('app.version_code='):
+                  lines.append('app.version_code=20')
+              elif line.startswith('app.version_name='):
+                  lines.append('app.version_name=0.2.0')
+              else:
+                  lines.append(line)
+          p.write_text('\n'.join(lines) + '\n')
+          PY
+
+      - name: Build APK
+        working-directory: love-android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleEmbedNoRecordRelease --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Flappy-Maker-Android-APK
+          path: love-android/app/build/outputs/apk/embedNoRecord/release/*.apk
+          if-no-files-found: error
