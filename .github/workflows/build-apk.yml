@@ -3,11 +3,16 @@ name: Build Flappy Maker APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+
+    env:
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      ANDROID_HOME: /usr/local/lib/android/sdk
 
     steps:
       - name: Checkout project
@@ -17,52 +22,93 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android build dependencies
+        shell: bash
         run: |
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "cmake;3.22.1" "ndk;25.2.9519653"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
-      - name: Get LÖVE Android 11.5a
+          sdkmanager --version
+
+          yes | sdkmanager --licenses > /dev/null || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "cmake;3.22.1" \
+            "ndk;25.2.9519653"
+
+      - name: Download LÖVE Android
         run: |
-          git clone --depth 1 --branch 11.5a --recurse-submodules --shallow-submodules \
-            https://github.com/love2d/love-android.git love-android
+          git clone \
+            --depth 1 \
+            --branch 11.5a \
+            --recurse-submodules \
+            --shallow-submodules \
+            https://github.com/love2d/love-android.git \
+            love-android
 
-      - name: Configure app
+      - name: Put Flappy Maker into LÖVE
         run: |
           mkdir -p love-android/app/src/embed/assets
           cp game.love love-android/app/src/embed/assets/game.love
+
+      - name: Configure Flappy Maker
+        run: |
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('love-android/gradle.properties')
-          s = p.read_text()
-          lines = []
-          for line in s.splitlines():
-              if line.startswith('app.name_byte_array='):
-                  lines.append('app.name=Flappy Maker')
-              elif line.startswith('app.application_id='):
-                  lines.append('app.application_id=com.brocade.flappymaker')
-              elif line.startswith('app.version_code='):
-                  lines.append('app.version_code=20')
-              elif line.startswith('app.version_name='):
-                  lines.append('app.version_name=0.2.0')
-              else:
-                  lines.append(line)
-          p.write_text('\n'.join(lines) + '\n')
+
+          p = Path("love-android/gradle.properties")
+          lines = p.read_text().splitlines()
+
+          remove = {
+              "app.name",
+              "app.name_byte_array",
+              "app.application_id",
+              "app.version_code",
+              "app.version_name",
+          }
+
+          new_lines = []
+
+          for line in lines:
+              if "=" in line:
+                  key = line.split("=", 1)[0].strip()
+
+                  if key in remove:
+                      continue
+
+              new_lines.append(line)
+
+          new_lines.extend([
+              "app.name=Flappy Maker",
+              "app.application_id=com.brocade.flappymaker",
+              "app.version_code=20",
+              "app.version_name=0.2.0",
+          ])
+
+          p.write_text("\n".join(new_lines) + "\n")
           PY
 
-      - name: Build APK
+      - name: Build Flappy Maker APK
         working-directory: love-android
         run: |
           chmod +x gradlew
-          ./gradlew assembleEmbedNoRecordRelease --no-daemon
+          ./gradlew assembleEmbedNoRecordRelease --no-daemon --stacktrace
+
+      - name: Find APK
+        run: |
+          echo "APK files:"
+          find love-android/app/build/outputs/apk -type f -name "*.apk" -print
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Flappy-Maker-Android-APK
-          path: love-android/app/build/outputs/apk/embedNoRecord/release/*.apk
+          path: love-android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
