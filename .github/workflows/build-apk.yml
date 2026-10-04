@@ -11,8 +11,8 @@ jobs:
     runs-on: ubuntu-22.04
 
     env:
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
     steps:
       - name: Checkout project
@@ -27,16 +27,26 @@ jobs:
       - name: Set up Android SDK
         shell: bash
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
+
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"
+
           echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
 
-          sdkmanager --version
+          echo "Android SDK:"
+          ls -la "$ANDROID_SDK_ROOT"
 
-          yes | sdkmanager --licenses > /dev/null || true
+          echo "Command line tools:"
+          ls -la "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
 
-          sdkmanager \
+          echo "sdkmanager:"
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --version
+
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
             "platform-tools" \
             "platforms;android-34" \
             "build-tools;34.0.0" \
@@ -64,9 +74,10 @@ jobs:
           from pathlib import Path
 
           p = Path("love-android/gradle.properties")
+
           lines = p.read_text().splitlines()
 
-          remove = {
+          remove_keys = {
               "app.name",
               "app.name_byte_array",
               "app.application_id",
@@ -79,18 +90,17 @@ jobs:
           for line in lines:
               if "=" in line:
                   key = line.split("=", 1)[0].strip()
-
-                  if key in remove:
+                  if key in remove_keys:
                       continue
 
               new_lines.append(line)
 
-          new_lines.extend([
+          new_lines += [
               "app.name=Flappy Maker",
               "app.application_id=com.brocade.flappymaker",
               "app.version_code=20",
-              "app.version_name=0.2.0",
-          ])
+              "app.version_name=0.2.0"
+          ]
 
           p.write_text("\n".join(new_lines) + "\n")
           PY
@@ -99,12 +109,17 @@ jobs:
         working-directory: love-android
         run: |
           chmod +x gradlew
-          ./gradlew assembleEmbedNoRecordRelease --no-daemon --stacktrace
+          ./gradlew assembleEmbedNoRecordRelease \
+            --no-daemon \
+            --stacktrace
 
       - name: Find APK
         run: |
           echo "APK files:"
-          find love-android/app/build/outputs/apk -type f -name "*.apk" -print
+          find love-android/app/build/outputs/apk \
+            -type f \
+            -name "*.apk" \
+            -print
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
